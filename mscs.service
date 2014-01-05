@@ -1,0 +1,16 @@
+[Unit]
+Description=Minecraft Server Control Script
+Requires=network.target
+After=network.target
+
+[Service]
+#Environment=PATH=uncomment:to:override:your:PATH
+Type=oneshot
+RemainAfterExit=yes
+User=minecraft
+ExecStart=/usr/local/bin/minecraft_server start
+ExecStop=/usr/local/bin/minecraft_server stop
+ExecReload=/usr/local/bin/minecraft_server restart
+
+[Install]
+WantedBy=multi-user.target
