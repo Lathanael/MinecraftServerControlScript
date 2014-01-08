@@ -168,9 +168,9 @@ CURRENT_VERSION=$(
 # ---------------------------------------------------------------------------
 # Default settings if not provided in the world's server.properties file.
 
-DEFAULT_WORLD="world"
-DEFAULT_PORT="25565"
-DEFAULT_IP=""
+DEFAULT_WORLD='world'
+DEFAULT_PORT='25565'
+DEFAULT_IP=''
 DEFAULT_CLIENT_VERSION=$CURRENT_VERSION
 DEFAULT_CLIENT_JAR='$CLIENT_VERSION.jar'
 DEFAULT_CLIENT_URL='https://s3.amazonaws.com/Minecraft.Download/versions/$CLIENT_VERSION/$CLIENT_VERSION.jar'
@@ -1383,7 +1383,7 @@ worldStatus() {
       MAX=$(echo "$STATUS" | cut -f 21)
       printf "running (%d of %d users online).\n" $NUM $MAX
       if [ $NUM -gt 0 ]; then
-        PLAYERS=$(echo "$STATUS" | cut -f $((30)))
+        PLAYERS=$(echo "$STATUS" | cut -f 30)
         COUNTER=1
         while [ $COUNTER -lt $NUM ]; do
           PLAYERS=$(printf "%s, %s" "$PLAYERS" $(echo "$STATUS" | cut -f $((30+$COUNTER))))
