@@ -735,6 +735,25 @@ getServerURL() {
 }
 
 # ---------------------------------------------------------------------------
+# Retrieve the paths to all library jar files.
+# Used for Forge
+#
+# @param 1 The world server
+# ---------------------------------------------------------------------------
+getServerLibraries() {
+  local CLASSPATH
+  CLASSPATH="."
+  cd "$WORLDS_LOCATION/$1"
+  if [ -d "libraries" ]; then
+    cd "libraries"
+    CLASSPATH=$CLASSPATH$(find "$PWD" -name '*.jar' -type f -printf ':%p\n' | sort -u | tr -d '\n')
+  elif [ -d "lib" ]; then
+    CLASSPATH="$CLASSPATH:$WORLDS_LOCATION/$1/lib/*"
+  fi
+  echo "$CLASSPATH"
+}
+
+# ---------------------------------------------------------------------------
 # Retrieve the command to start the server running the world.
 #
 # @param 1 The world server.
@@ -883,11 +902,12 @@ rotateLog() {
     done
   fi
 }
-
+# TODO: Add option to watch either server.log or Forge log file
 # ---------------------------------------------------------------------------
 # Watch the world latest.log file.
 #
 # @param 1 The world server generating the log to watch.
+# @param 2 The log file to watch
 # ---------------------------------------------------------------------------
 watchLog() {
   local WORLD_DIR
@@ -923,7 +943,7 @@ syncMirrorImage() {
 # @param 1 The world server to start.
 # ---------------------------------------------------------------------------
 start() {
-  local PID WORLD_DIR
+  local PID WORLD_DIR FORGE_VERSION
   # Make sure that the server software exists.
   updateServerSoftware "$1"
   # Make sure that the world's directory exists.
@@ -960,11 +980,15 @@ start() {
   # Initialize the console.in buffer file.
   execute "printf '' > $WORLD_DIR/console.in" $USER_NAME
   # Start the server.
-  execute "
+  if [[ $(getServerJar "$1") =~ "forge" ]]; then
+    startForge "$1"
+  else
+    execute "
     tail -f --pid=\$$ $WORLD_DIR/console.in | {
       $(getServerCommand $1) mscs-world=$1 > /dev/null 2>&1 && kill \$$;
     }
   " $USER_NAME &
+  fi
   # Verify the server is running.
   if [ $? -ne 0 ]; then
     printf "Error starting the server.\n"
@@ -982,6 +1006,37 @@ start() {
   # Create a lock file on RedHat and derivatives.
   if [ -d "/var/lock/subsys" ]; then
     touch /var/lock/subsys/minecraft_server
+  fi
+}
+
+# TODO: Start forge server with propper classpath values if needed
+# ---------------------------------------------------------------------------
+# Start a Minecraft Forge server.
+#
+# @param 1 The world server to start.
+# --------------------------------------------------------------------------
+startForge() {
+  local WORLD_DIR SERVER_JAR SERVER_LOCATION SERVER_COMMAND CLASSPATH
+  WORLD_DIR="$WORLDS_LOCATION/$1"
+  SERVER_JAR=$(getServerJar "$1")
+  SERVER_LOCATION=$(getServerLocation "$1")
+  SERVER_COMMAND=$(getServerCommand $1)
+  CLASSPATH=$(getServerLibraries "$1")
+  # From Forge 8.9.0.749 and onwards
+  # cpw.mods.fml.relauncher.ServerLaunchWrapper is used to start the forge server
+  if [ $(echo $(getServerVersion "$1") | sed 's/[\.-]//g') -gt 161890749 ]; then
+    printf "Starting with ServerLaunchWrapper\n"
+  # From Forge 4.2.5.315 to 8.9.0.749
+  # net.minecraft.server.MinecraftServer is used to start the forge server
+  elif [ $(echo $(getServerVersion "$1") | sed 's/[\.-]//g') -gt 132425314]; then
+    printf "Starting with MinecraftServer\n"
+  # Older versions are started like the normal minecraft server
+  else
+    execute "
+    tail -f --pid=\$$ $WORLD_DIR/console.in | {
+      $SERVER_COMMAND mscs-world=$1 > /dev/null 2>&1 && kill \$$;
+    }
+  " $USER_NAME &
   fi
 }
 
@@ -1084,7 +1139,15 @@ updateServerSoftware() {
   SERVER_URL=$(getServerURL "$1")
   # Make sure the server software directory exists.
   execute "mkdir -p $SERVER_LOCATION" $USER_NAME
-  if [ ! -e "$SERVER_LOCATION/$SERVER_JAR" ]; then
+  # Check first if forge installation is required
+  if [[ $SERVER_JAR =~ "forge" ]]; then
+    updateForgeServer "$1"
+    # Report any errors.
+    if [ $? -ne 0 ]; then
+      printf "\nError updating the Forge server software.\n"
+      exit 1
+    fi
+  elif [ ! -e "$SERVER_LOCATION/$SERVER_JAR" ]; then
     # Download the Minecraft server software.
     execute "$WGET -qO \"$SERVER_LOCATION/$SERVER_JAR\" \"$SERVER_URL\"" $USER_NAME
     # Report any errors.
@@ -1092,6 +1155,217 @@ updateServerSoftware() {
       printf "\nError updating the Minecraft server software.\n"
       exit 1
     fi
+  fi
+}
+
+# TODO: forge + libs download + folder setup
+# ---------------------------------------------------------------------------
+# Update the Minecraft server software.
+#
+# @param 1 The world server to update.
+# ---------------------------------------------------------------------------
+updateForgeServer() {
+  local WORLD_DIR SERVER_JAR SERVER_LOCATION SERVER_URL SERVER_VERSION MINECRAFT_VERSION
+  WORLD_DIR="$WORLDS_LOCATION/$1"
+  SERVER_VERSION=$(getServerVersion "$1")
+  SERVER_JAR=$(getServerJar "$1")
+  SERVER_LOCATION=$(getServerLocation "$1")
+  SERVER_URL=$(getServerURL $1)
+  MINECRAFT_VERSION=$(echo $SERVER_VERSION | cut -f1 -d-)
+  printf "\n$SERVER_JAR\n"
+  printf "$SERVER_VERSION\n"
+  # Make sure the world directory exists.
+  execute "mkdir -p $WORLD_DIR" $USER_NAME
+  # Make sure InstallFiles dir exists inside the server location
+  execute "mkdir -p $SERVER_LOCATION/ForgeInstallers" $USER_NAME
+  # Make sure Library dir exists inside the server location
+  execute "mkdir -p $SERVER_LOCATION/ForgeLibraries" $USER_NAME
+  # Download all Forge Libraries and copy them to their folder(s) if needed
+  downloadForgeLibraries "$1"
+  copyForgeLibraries "$1"
+  # Install Forge Server
+  if [ ! -e "$SERVER_LOCATION/ForgeInstallers/$SERVER_JAR" ]; then
+    # From Forge 1.6.2-9.10.0.818 and onwards
+    # install from command line possible
+    if [ $(echo $(getServerVersion "$1") | sed 's/[\.-]//g') -gt 1629100818 ]; then
+      execute "$WGET -qO \"$SERVER_LOCATION/ForgeInstallers/$SERVER_JAR\" \"$SERVER_URL\"" $USER_NAME
+      # Change to the server world directory to download libraries
+      cd $WORLD_DIR
+      # Run installer
+      execute "java \"$SERVER_LOCATION/ForgeInstallers/$SERVER_JAR\" --installServer" $USER_NAME
+      # Move the downloaded minecraft_server.jar to $SERVER_LOCATION if it doesn't exist
+      if [ ! -e "$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar" ]; then
+        execute "mv minecraft_server.$MINECRAFT_VERSION.jar $SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar" $USER_NAME
+      fi
+      # Move forge jar to $SERVER_LOCATION if it doesn't exist
+      if [ ! -e "$SERVER_LOCATION/minecraftforge-universal-$SERVER_VERSION.jar" ]; then
+        # Add special case for Forge 965!
+        execute "mv  minecraftforge-universal-$SERVER_VERSION.jar $SERVER_LOCATION/minecraftforge-universal-$SERVER_VERSION.jar" $USER_NAME
+      fi
+    # From Forge 1.6.1-8.9.0.749 to 1.6.2-9.10.0.817
+    # Manual download of minecraft_server.jar but different library folder structure
+    elif [ $(echo $(getServerVersion "$1") | sed 's/[\.-]//g') -gt 161890749 ]; then
+      # Download appropriate minecraft_server.jar to $SERVER_LOCATION if it doesn't exist
+      if [ ! -e "$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar" ]; then
+        execute "$WGET -qO \"$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar\" \"https://s3.amazonaws.com/Minecraft.Download/versions/$MINECRAFT_VERSION/minecraft_server.$MINECRAFT_VERSION.jar\"" $USER_NAME
+      fi
+      # Download forge jar to $SERVER_LOCATION if it doesn't exist
+      if [ ! -e "$SERVER_LOCATION/minecraftforge-universal-$SERVER_VERSION.jar" ]; then
+      fi
+    # From Forge 1.3.2-4.2.5.315 to 1.5.2-7.8.1.738
+    # Manual download of minecraft_server.jar
+    elif [ $(echo $(getServerVersion "$1") | sed 's/[\.-]//g') -gt 132425314 ]; then
+      # Download appropriate minecraft_server.jar to $SERVER_LOCATION if it doesn't exist
+      if [ ! -e "$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar" ]; then
+        execute "$WGET -qO \"$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar\" \"https://s3.amazonaws.com/Minecraft.Download/versions/$MINECRAFT_VERSION/minecraft_server.$MINECRAFT_VERSION.jar\"" $USER_NAME
+      fi
+      # Download forge jar to $SERVER_LOCATION if it doesn't exist
+      if [ ! -e "$SERVER_LOCATION/minecraftforge-universal-$SERVER_VERSION.jar" ]; then
+        execute "$WGET -qO \"$SERVER_LOCATION/minecraftforge-universal-$SERVER_VERSION.jar\" \"$SERVER_URL\"" $USER_NAME
+      fi
+    # Older versions are repackaged minecraft_server jars with forge in them
+    else
+      # Download the apropriate minecraft_server.<minecraft_version>.jar if it doesn't exist
+      if [ ! -e "$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar" ]; then
+        execute "$WGET -qO \"$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar\" \"https://s3.amazonaws.com/Minecraft.Download/versions/$MINECRAFT_VERSION/minecraft_server.$MINECRAFT_VERSION.jar\"" $USER_NAME
+      fi
+      # TODO: download forge and repackage server jar
+    fi
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Downloads all the libraries required to install Forge versions
+# prior to the 1.6.2-9.10.0.818 Installer
+#
+# @param 1 The world server
+# ---------------------------------------------------------------------------
+downloadForgeLibraries() {
+  local SERVER_LOCATION
+  SERVER_LOCATION=$(getServerLocation "$1")
+  # argo
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/argo-2.25.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/argo-2.25.jar\" \"http://files.minecraftforge.net/fmllibs/argo-2.25.jar\"" $USER_NAME
+  fi
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/argo-small-3.2.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/argo-small-3.2.jar\" \"http://files.minecraftforge.net/fmllibs/argo-small-3.2.jar\"" $USER_NAME
+  fi
+  # asm
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/asm-all-4.0.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/asm-all-4.0.jar\" \"http://files.minecraftforge.net/fmllibs/asm-all-4.0.jar\"" $USER_NAME
+  fi
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/asm-all-4.1.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/asm-all-4.1.jar\" \"http://files.minecraftforge.net/fmllibs/asm-all-4.1.jar\"" $USER_NAME
+  fi
+  # bouncycastle
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/bcprov-jdk15on-147.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/bcprov-jdk15on-147.jar\" \"http://files.minecraftforge.net/fmllibs/bcprov-jdk15on-147.jar\"" $USER_NAME
+  fi
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/bcprov-jdk15on-148.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/bcprov-jdk15on-148.jar\" \"http://files.minecraftforge.net/fmllibs/bcprov-jdk15on-148.jar.stash\"" $USER_NAME
+  fi
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/deobfuscation_data_1.5.zip" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/deobfuscation_data_1.5.zip\" \"http://files.minecraftforge.net/fmllibs/deobfuscation_data_1.5.zip\"" $USER_NAME
+  fi
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/deobfuscation_data_1.5.1.zip" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/deobfuscation_data_1.5.1.zip\" \"http://files.minecraftforge.net/fmllibs/deobfuscation_data_1.5.1.zip\"" $USER_NAME
+  fi
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/deobfuscation_data_1.5.2.zip" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/deobfuscation_data_1.5.2.zip\" \"http://files.minecraftforge.net/fmllibs/deobfuscation_data_1.5.2.zip\"" $USER_NAME
+  fi
+  # guava
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/guava-12.0.1.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/guava-12.0.1.jar\" \"http://files.minecraftforge.net/fmllibs/guava-12.0.1.jar\"" $USER_NAME
+  fi
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/guava-14.0-rc3.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/guava-14.0-rc3.jar\" \"http://files.minecraftforge.net/fmllibs/guava-14.0-rc3.jar\"" $USER_NAME
+  fi
+  # jopt
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/jopt-simple-4.5.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/jopt-simple-4.5.jar\" \"https://libraries.minecraft.net/net/sf/jopt-simple/jopt-simple/4.5/jopt-simple-4.5.jar\"" $USER_NAME
+  fi
+  # launcherwrapper
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/launchwrapper-1.3.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/launchwrapper-1.3.jar\" \"https://libraries.minecraft.net/net/minecraft/launchwrapper/1.3/launchwrapper-1.3.jar\"" $USER_NAME
+  fi
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/launchwrapper-1.7.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/launchwrapper-1.7.jar\" \"https://libraries.minecraft.net/net/minecraft/launchwrapper/1.7/launchwrapper-1.7.jar\"" $USER_NAME
+  fi
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/launchwrapper-1.8.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/launchwrapper-1.8.jar\" \"https://libraries.minecraft.net/net/minecraft/launchwrapper/1.8/launchwrapper-1.8.jar\"" $USER_NAME
+  fi
+  # lzma
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/lzma-0.0.1.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/lzma-0.0.1.jar\" \"https://libraries.minecraft.net/lzma/lzma/0.0.1/lzma-0.0.1.jar\"" $USER_NAME
+  fi
+  # scala
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/scala-compiler-2.10.2.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/scala-compiler-2.10.2.jar\" \"http://repo1.maven.org/maven2/org/scala-lang/scala-compiler/2.10.2/scala-compiler-2.10.2.jar\"" $USER_NAME
+  fi
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/scala-library.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/scala-library.jar\" \"http://files.minecraftforge.net/fmllibs/scala-library.jar.stash\"" $USER_NAME
+  fi
+  if [ ! -e "$SERVER_LOCATION/ForgeLibraries/scala-library-2.10.2.jar" ]; then
+    execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/scala-library-2.10.2.jar\" \"http://repo1.maven.org/maven2/org/scala-lang/scala-library/2.10.2/scala-library-2.10.2.jar\"" $USER_NAME
+  fi
+}
+  # unfinished
+  #if [ ! -e "$SERVER_LOCATION/ForgeLibraries/scala-library-2.10.0-custom.jar"]; then
+    #  execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/scala-library-2.10.0-custom.jar.pack.xz" \"http://files.minecraftforge.net/maven/org/scala-lang/scala-library/2.10.0-custom/scala-library-2.10.0-custom.jar.pack.xz" $USER_NAME
+  #fi
+  #if [ ! -e "$SERVER_LOCATION/ForgeLibraries/legacyfixer-1.0.jar"]; then
+    #  execute "$WGET -qO \"$SERVER_LOCATION/ForgeLibraries/legacyfixer-1.0.jar.pack.xz" \"http://files.minecraftforge.net/maven/net/minecraftforge_temp/legacy/legacyfixer/1.0/legacyfixer-1.0.jar.pack.xz" $USER_NAME
+  #fi
+
+# ---------------------------------------------------------------------------
+#
+#
+# @param 1 The world server
+# ---------------------------------------------------------------------------
+copyForgeLibraries() {
+  local SERVER_LOCATION WORLD_DIR SERVER_VERSION MINECRAFT_VERSION
+  SERVER_LOCATION=$(getServerLocation "$1")
+  WORLD_DIR="$WORLDS_LOCATION/$1"
+  SERVER_VERSION=$(getServerVersion "$1")
+  MINECRAFT_VERSION=$(echo $SERVER_VERSION | cut -f1 -d-)
+  if [ $MINECRAFT_VERSION == "1.6.2" -o $MINECRAFT_VERSION == "1.6.1" ]; then
+    # In Forge 1.6.2-9.10.0.818 and greater the installer can be launched from the command line and downloads all needed libraries
+    if [ $(echo $SERVER_VERSION | sed 's/[\.-]//g') -lt 1619100818 ]; then
+        # Make sure asm folder exists
+        execute "mkdir -p \"$WORLD_DIR/libraries/org/ow2/asm/asm-all/4.1/asm-all-4.1.jar\"" $USER_NAME
+        if [ ! -e "$WORLD_DIR/libraries/org/ow2/asm/asm-all/4.1/asm-all-4.1.jar" ]; then
+          execute "cp \"$SERVER_LOCATION/ForgeLibraries/asm-all-4.1.jar\" \"$WORLD_DIR/libraries/org/ow2/asm/asm-all/4.1/asm-all-4.1.jar\"" $USER_NAME
+        fi
+        # Make sure jopt folder exists
+        execute "mkdir -p \"$WORLD_DIR/libraries/net/sf/jopt-simple/jopt-simple/4.5\"" $USER_NAME
+        if [ ! -e "$WORLD_DIR/net/sf/jopt-simple/jopt-simple/4.5/jopt-simple-4.5.jar" ]; then
+          execute "cp \"$SERVER_LOCATION/ForgeLibraries/jopt-simple-4.5.jar\" \"$WORLD_DIR/libraries/net/sf/jopt-simple/jopt-simple/4.5/jopt-simple-4.5.jar\"" $USER_NAME
+        fi
+        # Make sure lzma folder exists
+        execute "mkdir -p \"$WORLD_DIR/libraries/lzma/lzma/0.0.1\"" $USER_NAME
+        if [ ! -e "$SERVER_LOCATION/ForgeLibraries/lzma-0.0.1.jar" ]; then
+          execute "cp \"$SERVER_LOCATION/ForgeLibraries/lzma-0.0.1.jar" \"$WORLD_DIR/libraries/lzma/lzma/0.0.1/lzma-0.0.1.jar\" $USER_NAME
+        fi
+        # Make sure scala folders exist
+        execute "mkdir -p \"$WORLD_DIR/libraries/org/scala-lang/scala-compiler/2.10.2\"" $USER_NAME
+        execute "mkdir -p \"$WORLD_DIR/libraries/org/scala-lang/scala-library/2.10.2\"" $USER_NAME
+        if [ ! -e "$WORLD_DIR/libraries/org/scala-lang/scala-compiler/2.10.2/scala-compiler-2.10.2.jar" ]; then
+          execute "cp \"$SERVER_LOCATION/ForgeLibraries/scala-compiler-2.10.2.jar" \"$WORLD_DIR/libraries/org/scala-lang/scala-compiler/2.10.2/scala-compiler-2.10.2.jar\" $USER_NAME
+        fi
+        if [ ! -e "$WORLD_DIR/libraries/org/scala-lang/scala-library/2.10.2/scala-library-2.10.2.jar" ]; then
+          execute "cp \"$SERVER_LOCATION/ForgeLibraries/scala-library-2.10.2.jar" \"$WORLD_DIR/libraries/org/scala-lang/scala-library/2.10.2/scala-library-2.10.2.jar\" $USER_NAME
+        fi
+        # Make sure launcherwrapper folder exists
+        execute "mkdir -p \"$WORLD_DIR/libraries/net/minecraft/launchwrapper/1.3\"" $USER_NAME
+        if [ ! -e "$WORLD_DIR/libraries/net/minecraft/launchwrapper/1.3/launchwrapper-1.3.jar" ]; then
+          execute "cp \"$SERVER_LOCATION/ForgeLibraries/launchwrapper-1.3.jar" \"$WORLD_DIR/libraries/net/minecraft/launchwrapper/1.3/launchwrapper-1.3.jar\" $USER_NAME
+        fi
+      fi
+    # Forge for Minecraft version 1.5.2 and lower needs another folder structure for libraries
+    elif [ $(echo $SERVER_VERSION | sed 's/[\.-]//g') -lt 161890749 ]; then
+        if [ $MINECRAFT_VERSION == "1.5.2" -o $MINECRAFT_VERSION == "1.5.1" -o $MINECRAFT_VERSION == "1.5" ]; then
+          printf "\nCreating lib for MC 1.5.x or lower\n"
+        fi
   fi
 }
 
