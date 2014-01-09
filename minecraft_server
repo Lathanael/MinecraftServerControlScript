@@ -391,7 +391,7 @@ serverRunning() {
 # @param 2 The command to send.
 # ---------------------------------------------------------------------------
 sendCommand() {
-  local COMMAND PID
+  local COMMAND
   COMMAND=$(printf "$2\r")
   echo "$COMMAND" >> $WORLDS_LOCATION/$1/console.in
 }
