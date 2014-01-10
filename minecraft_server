@@ -902,14 +902,35 @@ rotateLog() {
     done
   fi
 }
-# TODO: Add option to watch either server.log or Forge log file
+
 # ---------------------------------------------------------------------------
-# Watch the world latest.log file.
+# Watch the a log file for the given world
 #
 # @param 1 The world server generating the log to watch.
 # @param 2 The log file to watch
 # ---------------------------------------------------------------------------
 watchLog() {
+  local WORLD_DIR
+  WORLD_DIR="$WORLDS_LOCATION/$1"
+  if [ "$#" -eq 1 ]; then
+    watchNormalLog "$1"
+  # Forge log called?
+  else
+    # Watch latest forge log
+    if [ "$2" == "forge" ]; then
+      tail -n0 -f --pid=$(getJavaPID "$1") $WORLD_DIR/ForgeModLoader-server-0.log
+    # Fall back to default log
+    else
+      watchNormalLog "$1"
+    fi
+  fi
+}
+# ---------------------------------------------------------------------------
+# Watch the world latest.log file.
+#
+# @param 1 The world server generating the log to watch.
+# ---------------------------------------------------------------------------
+watchNormalLog() {
   local WORLD_DIR
   WORLD_DIR="$WORLDS_LOCATION/$1"
   # Make sure that the latest.log file exists.
@@ -1187,7 +1208,6 @@ updateServerSoftware() {
   fi
 }
 
-# TODO: forge + libs download + folder setup
 # ---------------------------------------------------------------------------
 # Update the Minecraft server software.
 #
@@ -1391,9 +1411,10 @@ copyForgeLibraries() {
       fi
     # Forge for Minecraft version 1.5.2 and lower needs another folder structure for libraries
     elif [ $(echo $SERVER_VERSION | sed 's/[\.-]//g') -lt 161890749 ]; then
-        if [ $MINECRAFT_VERSION == "1.5.2" -o $MINECRAFT_VERSION == "1.5.1" -o $MINECRAFT_VERSION == "1.5" ]; then
-          printf "\nCreating lib for MC 1.5.x or lower\n"
-        fi
+      # TODO: Copy libraries for other MC version and create correct folder structure
+      if [ $MINECRAFT_VERSION == "1.5.2" -o $MINECRAFT_VERSION == "1.5.1" -o $MINECRAFT_VERSION == "1.5" ]; then
+        printf "\nCreating lib for MC 1.5.x or lower\n"
+      fi
   fi
 }
 
@@ -2030,8 +2051,13 @@ case "$1" in
     WORLDS=$(getEnabledWorlds)
     # Check for the world command line argument.
     if [ -n "$2" ] && [ $(listContains $2 "$WORLDS") -eq 1 ]; then
-      printf "Monitoring Minecraft Server: $2.\n"
-      watchLog $2
+      if [ "$#" -eq 3 ] $$ [ "$3" == "forge" ]; then
+        printf "Monitoring Minecraft Server(ForgeModLoader.log): $2.\n"
+        watchLog $2 $3
+      else
+        printf "Monitoring Minecraft Server(server.log/latest.log): $2.\n"
+        watchLog $2
+      fi
     else
       if [ -n "$2" ]; then
         printf "Minecraft world $2 not found!\n"
