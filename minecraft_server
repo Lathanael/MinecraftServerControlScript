@@ -965,6 +965,7 @@ syncMirrorImage() {
 # ---------------------------------------------------------------------------
 start() {
   local WORLD_DIR
+  printf "."
   # Make sure that the server software exists.
   updateServerSoftware "$1"
   # Make sure that the world's directory exists.
@@ -972,6 +973,7 @@ start() {
   execute "mkdir -p $WORLD_DIR" $USER_NAME
   # Rotate the world's log files.
   rotateLog "$1"
+  printf "."
   # Make a mirror image of the world directory if requested.
   if [ $ENABLE_MIRROR -eq 1 ]; then
     execute "mkdir -p $MIRROR_PATH/$1" $USER_NAME
@@ -994,6 +996,7 @@ start() {
     # Create a symlink from the world file directory's original name to the mirrored files.
     execute "ln -s $MIRROR_PATH/$1 $WORLDS_LOCATION/$1/$1" $USER_NAME
   fi
+  printf "."
   # Change to the world's directory.
   cd $WORLD_DIR
   # Delete any old console.in buffer file.
@@ -1001,6 +1004,7 @@ start() {
   # Initialize the console.in buffer file.
   execute "printf '' > $WORLD_DIR/console.in" $USER_NAME
   # Start the server.
+  printf "."
   if [[ $(getServerJar "$1") =~ "forge" ]]; then
     startForge "$1"
   else
@@ -1010,24 +1014,29 @@ start() {
     }
   " $USER_NAME &
   fi
+  printf "."
   # Verify the server is running.
   if [ $? -ne 0 ]; then
     printf "Error starting the server.\n"
     exit 1
   fi
+  printf "."
   sleep 1
   if [ $(getJavaPID "$1") -eq 0 ]; then
     printf "Error starting the server: couldn't retrieve the server's process ID.\n"
     exit 1
   fi
+  printf "."
   # Start the Query handler if enabled.
   if [ "$(getPropertiesValue $1 'enable-query')" = "true" ]; then
     queryStart "$1" &
   fi
+  printf "."
   # Create a lock file on RedHat and derivatives.
   if [ -d "/var/lock/subsys" ]; then
     touch /var/lock/subsys/minecraft_server
   fi
+  printf "."
 }
 
 # ---------------------------------------------------------------------------
@@ -1214,12 +1223,10 @@ updateServerSoftware() {
 # @param 1 The world server to update.
 # ---------------------------------------------------------------------------
 updateForgeServer() {
-  local WORLD_DIR SERVER_JAR SERVER_LOCATION SERVER_URL SERVER_VERSION MINECRAFT_VERSION
+  local WORLD_DIR SERVER_LOCATION SERVER_VERSION MINECRAFT_VERSION
   WORLD_DIR="$WORLDS_LOCATION/$1"
   SERVER_VERSION=$(getServerVersion "$1")
-  SERVER_JAR=$(getServerJar "$1")
   SERVER_LOCATION=$(getServerLocation "$1")
-  SERVER_URL=$(getServerURL $1)
   MINECRAFT_VERSION=$(echo $SERVER_VERSION | cut -f1 -d-)
   # Make sure the world directory exists.
   execute "mkdir -p $WORLD_DIR" $USER_NAME
@@ -1232,6 +1239,27 @@ updateForgeServer() {
   copyForgeLibraries "$1"
   # Install Forge Server
   if [ ! -e "$SERVER_LOCATION/ForgeInstallers/$SERVER_JAR" ]; then
+    installForge "$1"
+  elif [ $(echo $MINECRAFT_VERSION | sed 's/[\.-]//g') -lt 160 ] && [ ! -e "$WORLD_DIR/lib" ]; then
+    installForge "$1"
+  elif [ $(echo $MINECRAFT_VERSION | sed 's/[\.-]//g') -gt 152 ] && [ ! -e "$WORLD_DIR/libraries" ]; then
+    installForge "$1"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Intsall the Minecraft Forge server software if needed
+#
+# @param 1 The world server to update.
+# ---------------------------------------------------------------------------
+installForge() {
+    local WORLD_DIR SERVER_JAR SERVER_LOCATION SERVER_URL SERVER_VERSION MINECRAFT_VERSION
+    WORLD_DIR="$WORLDS_LOCATION/$1"
+    SERVER_VERSION=$(getServerVersion "$1")
+    SERVER_JAR=$(getServerJar "$1")
+    SERVER_LOCATION=$(getServerLocation "$1")
+    SERVER_URL=$(getServerURL $1)
+    MINECRAFT_VERSION=$(echo $SERVER_VERSION | cut -f1 -d-)
     # From Forge 1.6.2-9.10.0.818 and onwards
     # install from command line possible
     if [ $(echo $(getServerVersion "$1") | sed 's/[\.-]//g') -gt 1629100818 ]; then
@@ -1279,7 +1307,6 @@ updateForgeServer() {
       fi
       # TODO: download forge and repackage server jar
     fi
-  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -1380,7 +1407,7 @@ copyForgeLibraries() {
     # In Forge 1.6.2-9.10.0.818 and greater the installer can be launched from the command line and downloads all needed libraries
     if [ $(echo $SERVER_VERSION | sed 's/[\.-]//g') -lt 1619100818 ]; then
         # Make sure asm folder exists
-        execute "mkdir -p \"$WORLD_DIR/libraries/org/ow2/asm/asm-all/4.1/asm-all-4.1.jar\"" $USER_NAME
+        execute "mkdir -p \"$WORLD_DIR/libraries/org/ow2/asm/asm-all/4.1\"" $USER_NAME
         if [ ! -e "$WORLD_DIR/libraries/org/ow2/asm/asm-all/4.1/asm-all-4.1.jar" ]; then
           execute "cp \"$SERVER_LOCATION/ForgeLibraries/asm-all-4.1.jar\" \"$WORLD_DIR/libraries/org/ow2/asm/asm-all/4.1/asm-all-4.1.jar\"" $USER_NAME
         fi
