@@ -1435,13 +1435,73 @@ copyForgeLibraries() {
         if [ ! -e "$WORLD_DIR/libraries/net/minecraft/launchwrapper/1.3/launchwrapper-1.3.jar" ]; then
           execute "cp \"$SERVER_LOCATION/ForgeLibraries/launchwrapper-1.3.jar" \"$WORLD_DIR/libraries/net/minecraft/launchwrapper/1.3/launchwrapper-1.3.jar\" $USER_NAME
         fi
-      fi
+    fi
     # Forge for Minecraft version 1.5.2 and lower needs another folder structure for libraries
-    elif [ $(echo $SERVER_VERSION | sed 's/[\.-]//g') -lt 161890749 ]; then
-      # TODO: Copy libraries for other MC version and create correct folder structure
-      if [ $MINECRAFT_VERSION == "1.5.2" -o $MINECRAFT_VERSION == "1.5.1" -o $MINECRAFT_VERSION == "1.5" ]; then
-        printf "\nCreating lib for MC 1.5.x or lower\n"
-      fi
+  elif [ $(echo $SERVER_VERSION | sed 's/[\.-]//g') -lt 161890749 ]; then
+    case "$MINECRAFT_VERSION" in
+        "1.5.2"|"1.5.1"|"1.5")
+            execute "mkdir -p \"$WORLD_DIR/lib\"" $USER_NAME
+            if [ ! -e "$WORLD_DIR/lib/asm-all-4.1.jar" ]; then
+                execute "cp \"$SERVER_LOCATION/ForgeLibraries/asm-all-4.1.jar\" \"$WORLD_DIR/lib/asm-all-4.1.jar\"" $USER_NAME
+            fi
+            if [ ! -e "$WORLD_DIR/lib/guava-14.0-rc3.jar" ]; then
+                execute "cp \"$SERVER_LOCATION/ForgeLibraries/guava-14.0-rc3.jar\" \"$WORLD_DIR/lib/guava-14.0-rc3.jar\"" $USER_NAME
+            fi
+            if [ ! -e "$WORLD_DIR/lib/argo-small-3.2.jar" ]; then
+                execute "cp \"$SERVER_LOCATION/ForgeLibraries/argo-small-3.2.jar\" \"$WORLD_DIR/lib/argo-small-3.2.jar\"" $USER_NAME
+            fi
+            case "$MINECRAFT_VERSION" in
+                "1.5.2")
+                    if [ ! -e "$WORLD_DIR/lib/deobfuscation_data_1.5.2.jar" ]; then
+                        execute "cp \"$SERVER_LOCATION/ForgeLibraries/deobfuscation_data_1.5.2.jar\" \"$WORLD_DIR/lib/deobfuscation_data_1.5.2.jar\"" $USER_NAME
+                    fi
+                    ;;
+                "1.5.1")
+                    if [ ! -e "$WORLD_DIR/lib/deobfuscation_data_1.5.1.jar" ]; then
+                        execute "cp \"$SERVER_LOCATION/ForgeLibraries/deobfuscation_data_1.5.1.jar\" \"$WORLD_DIR/lib/deobfuscation_data_1.5.1.jar\"" $USER_NAME
+                    fi
+                    ;;
+                "1.5")
+                    if [ ! -e "$WORLD_DIR/lib/deobfuscation_data_1.5.jar" ]; then
+                        execute "cp \"$SERVER_LOCATION/ForgeLibraries/deobfuscation_data_1.5.jar\" \"$WORLD_DIR/lib/deobfuscation_data_1.5.jar\"" $USER_NAME
+                    fi
+                    ;;
+            esac
+            ;;
+        "1.4.7"|"1.4.6"|"1.4.5"|"1.4.4"|"1.4.3"|"1.4.2"|"1.4.1"|"1.4")
+            # Make sure lib folder exists
+            execute "mkdir -p \"$WORLD_DIR/lib\"" $USER_NAME
+            if [ ! -e "$WORLD_DIR/lib/asm-all-4.0.jar" ]; then
+                execute "cp \"$SERVER_LOCATION/ForgeLibraries/asm-all-4.0.jar\" \"$WORLD_DIR/lib/asm-all-4.0.jar\"" $USER_NAME
+            fi
+            if [ ! -e "$WORLD_DIR/lib/guava-12.0.1.jar" ]; then
+                execute "cp \"$SERVER_LOCATION/ForgeLibraries/guava-12.0.1.jar\" \"$WORLD_DIR/lib/guava-12.0.1.jar\"" $USER_NAME
+            fi
+            if [ ! -e "$WORLD_DIR/lib/argo-2.25.jar" ]; then
+                execute "cp \"$SERVER_LOCATION/ForgeLibraries/argo-2.25.jar\" \"$WORLD_DIR/lib/argo-2.25.jar\"" $USER_NAME
+            fi
+            # Not all versions of MC 1.4.x require this but it's easier to download it anyways
+            if [ ! -e "$WORLD_DIR/lib/bcprov-jdk15on-147.jar" ]; then
+                execute "cp \"$SERVER_LOCATION/ForgeLibraries/bcprov-jdk15on-147.jar\" \"$WORLD_DIR/lib/bcprov-jdk15on-147.jar\"" $USER_NAME
+            fi
+            ;;
+        "1.3.2")
+            # Make sure lib folder exists
+            execute "mkdir -p \"$WORLD_DIR/lib\"" $USER_NAME
+            if [ ! -e "$WORLD_DIR/lib/asm-all-4.0.jar" ]; then
+                execute "cp \"$SERVER_LOCATION/ForgeLibraries/asm-all-4.0.jar\" \"$WORLD_DIR/lib/asm-all-4.0.jar\"" $USER_NAME
+            fi
+            if [ ! -e "$WORLD_DIR/lib/guava-12.0.1.jar" ]; then
+                execute "cp \"$SERVER_LOCATION/ForgeLibraries/guava-12.0.1.jar\" \"$WORLD_DIR/lib/guava-12.0.1.jar\"" $USER_NAME
+            fi
+            if [ ! -e "$WORLD_DIR/lib/argo-2.25.jar" ]; then
+                execute "cp \"$SERVER_LOCATION/ForgeLibraries/argo-2.25.jar\" \"$WORLD_DIR/lib/argo-2.25.jar\"" $USER_NAME
+            fi
+            ;;
+        *)
+            printf "Could not determine libraries for Minecraft version: $MINECRAFT_VERSION"
+            ;;
+    esac
   fi
 }
 
