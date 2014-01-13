@@ -148,6 +148,8 @@ RSYNC=$(which rsync)
 WGET=$(which wget)
 RDIFF_BACKUP=$(which rdiff-backup)
 SOCAT=$(which socat)
+UNZIP=$(which unzip)
+JAR=$(which jar)
 
 
 # Global Server Configuration
@@ -1055,7 +1057,6 @@ startForge() {
   # From Forge 8.9.0.749 and onwards
   # cpw.mods.fml.relauncher.ServerLaunchWrapper is used to start the forge server
   if [ $(echo $(getServerVersion "$1") | sed 's/[\.-]//g') -gt 161890749 ]; then
-    printf "\nStarting with ServerLaunchWrapper\n"
     CLASSPATH="$SERVER_LOCATION/$SERVER_JAR:$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar:$CLASSPATH"
     MAIN_CLASS="cpw.mods.fml.relauncher.ServerLaunchWrapper"
     SERVER_COMMAND=$(
@@ -1305,7 +1306,23 @@ installForge() {
       if [ ! -e "$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar" ]; then
         execute "$WGET -qO \"$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar\" \"https://s3.amazonaws.com/Minecraft.Download/versions/$MINECRAFT_VERSION/minecraft_server.$MINECRAFT_VERSION.jar\"" $USER_NAME
       fi
-      # TODO: download forge and repackage server jar
+      # Download forge zip to $SERVER_LOCATION/ForgeInstallers if it doesn't exist
+      if [ ! -e "$SERVER_LOCATION/ForgeInstallers/minecraftforge-universal-$SERVER_VERSION.zip" ]; then
+        execute "$WGET -qO \"$SERVER_LOCATION/ForgeInstallers/minecraftforge-universal-$SERVER_VERSION.zip\" \"$SERVER_URL\"" $USER_NAME
+      fi
+      # Repackage Server jar to include forge files
+      if [ ! -e "$SERVER_LOCATION/minecraft_server.$SERVER_VERSION.jar" ]; then
+      # Make sure tmp folder exists
+        execute "mkdir -p \"$SERVER_LOCATION/ForgeInstallers/tmp\"" $USER_NAME
+        # Unzip Forge into the temporary folder
+        execute "$UNZIP \"$SERVER_LOCATION/ForgeInstallers/minecraftforge-universal-$SERVER_VERSION.zip\" -d \"$SERVER_LOCATION/ForgeInstallers/tmp\"" $USER_NAME
+        # Copy the normal server jar
+        execute "cp \"$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar\" \"$SERVER_LOCATION/minecraft_server.$SERVER_VERSION.jar\"" $USER_NAME
+        # Repackage
+        execute "$JAR -uvf \"$SERVER_LOCATION/minecraft_server.$SERVER_VERSION.jar\" -C \"$SERVER_LOCATION/ForgeInstallers/tmp\" *" $USER_NAME
+        # Remove temporary folder
+        execute "rm -rf \"$SERVER_LOCATION/ForgeInstallers/tmp\"" $USER_NAME
+      fi
     fi
 }
 
@@ -1480,7 +1497,7 @@ copyForgeLibraries() {
             if [ ! -e "$WORLD_DIR/lib/argo-2.25.jar" ]; then
                 execute "cp \"$SERVER_LOCATION/ForgeLibraries/argo-2.25.jar\" \"$WORLD_DIR/lib/argo-2.25.jar\"" $USER_NAME
             fi
-            # Not all versions of MC 1.4.x require this but it's easier to download it anyways
+            # Not all versions of MC 1.4.x require this but it's easier to copy it anyways
             if [ ! -e "$WORLD_DIR/lib/bcprov-jdk15on-147.jar" ]; then
                 execute "cp \"$SERVER_LOCATION/ForgeLibraries/bcprov-jdk15on-147.jar\" \"$WORLD_DIR/lib/bcprov-jdk15on-147.jar\"" $USER_NAME
             fi
@@ -2138,7 +2155,7 @@ case "$1" in
     WORLDS=$(getEnabledWorlds)
     # Check for the world command line argument.
     if [ -n "$2" ] && [ $(listContains $2 "$WORLDS") -eq 1 ]; then
-      if [ "$#" -eq 3 ] $$ [ "$3" == "forge" ]; then
+      if [ "$#" -eq 3 ] && [ "$3" == "forge" ]; then
         printf "Monitoring Minecraft Server(ForgeModLoader.log): $2.\n"
         watchLog $2 $3
       else
