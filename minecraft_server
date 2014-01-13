@@ -1875,6 +1875,12 @@ if [ ! -e "$SOCAT" ]; then
   printf "sudo apt-get install socat\n"
   exit 1
 fi
+if [ ! -e "$UNZIP" ]; then
+  printf "ERROR: unzip not found!\n"
+  printf "Try installing this with:\n"
+  printf "sudo apt-get install unzip\n"
+  exit 1
+fi
 
 
 # Respond to the command line arguments.
