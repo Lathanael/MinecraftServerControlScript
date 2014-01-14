@@ -900,7 +900,7 @@ rotateLog() {
     for LOG in $(ls -r $WORLD_DIR/logs/$DATE-*.log.gz); do
       NUMBER=$(echo $LOG | cut -d "." -f 1 | cut -d "-" -f 4)
       NUMBER=$(($NUMBER+1))
-      execute "mv -f $LOG $WORLD_DIR/logs/$DATE-$NUMBER.log.gz" $USER_NAME
+      execute "mv -f $LOG \"$WORLD_DIR/logs/$DATE-$NUMBER.log.gz\"" $USER_NAME
     done
   fi
 }
@@ -1073,8 +1073,7 @@ startForge() {
     execute "tail -f --pid=\$$ $WORLD_DIR/console.in | { $SERVER_COMMAND mscs-world=$1 > /dev/null 2>&1 && kill \$$; }" $USER_NAME &
   # From Forge 4.2.5.315 to 8.9.0.749
   # net.minecraft.server.MinecraftServer is used to start the forge server
-  elif [ $(echo $(getServerVersion "$1") | sed 's/[\.-]//g') -gt 132425314]; then
-    printf "\nStarting with MinecraftServer\n"
+  elif [ $(echo $(getServerVersion "$1") | sed 's/[\.-]//g') -gt 132425314 ]; then
     CLASSPATH="$SERVER_LOCATION/$SERVER_JAR:$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar:$CLASSPATH"
     MAIN_CLASS="net.minecraft.server.MinecraftServer"
     SERVER_COMMAND=$(
@@ -1311,19 +1310,20 @@ installForge() {
         execute "$WGET -qO \"$SERVER_LOCATION/ForgeInstallers/minecraftforge-universal-$SERVER_VERSION.zip\" \"$SERVER_URL\"" $USER_NAME
       fi
       # Repackage Server jar to include forge files
-      if [ ! -e "$SERVER_LOCATION/minecraft_server.$SERVER_VERSION.jar" ]; then
+      if [ ! -e "$SERVER_LOCATION/minecraft_server.forge.$SERVER_VERSION.jar" ]; then
       # Make sure tmp folder exists
         execute "mkdir -p \"$SERVER_LOCATION/ForgeInstallers/tmp\"" $USER_NAME
         # Unzip Forge into the temporary folder
-        execute "$UNZIP \"$SERVER_LOCATION/ForgeInstallers/minecraftforge-universal-$SERVER_VERSION.zip\" -d \"$SERVER_LOCATION/ForgeInstallers/tmp\"" $USER_NAME
+        execute "$UNZIP -q \"$SERVER_LOCATION/ForgeInstallers/minecraftforge-universal-$SERVER_VERSION.zip\" -d \"$SERVER_LOCATION/ForgeInstallers/tmp\"" $USER_NAME
         # Copy the normal server jar
-        execute "cp \"$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar\" \"$SERVER_LOCATION/minecraft_server.$SERVER_VERSION.jar\"" $USER_NAME
+        execute "cp -p \"$SERVER_LOCATION/minecraft_server.$MINECRAFT_VERSION.jar\" \"$SERVER_LOCATION/minecraft_server.forge.$SERVER_VERSION.jar\"" $USER_NAME
         # Repackage
-        execute "$JAR -uvf \"$SERVER_LOCATION/minecraft_server.$SERVER_VERSION.jar\" -C \"$SERVER_LOCATION/ForgeInstallers/tmp\" *" $USER_NAME
+        execute "$JAR -uf \"$SERVER_LOCATION/minecraft_server.forge.$SERVER_VERSION.jar\" -C \"$SERVER_LOCATION/ForgeInstallers/tmp/\" ." $USER_NAME
         # Remove temporary folder
         execute "rm -rf \"$SERVER_LOCATION/ForgeInstallers/tmp\"" $USER_NAME
       fi
     fi
+    printf "."
 }
 
 # ---------------------------------------------------------------------------
